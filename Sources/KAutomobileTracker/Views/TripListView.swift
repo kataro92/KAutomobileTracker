@@ -1,3 +1,4 @@
+import KAutomobileTrackerCore
 import SwiftUI
 
 struct TripListView: View {
@@ -12,11 +13,13 @@ struct TripListView: View {
                     Label("New tracking session", systemImage: "record.circle")
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("New tracking session")
             }
             Section("Trips") {
                 ForEach(trips.trips) { trip in
                     TripRowView(trip: trip)
                         .tag(trip)
+                        .accessibilityElement(children: .combine)
                 }
             }
         }
@@ -39,6 +42,7 @@ private struct TripRowView: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(.green.opacity(0.2)))
+                        .accessibilityLabel("Tracked")
                 }
             }
             Text(trip.sourceLabel)

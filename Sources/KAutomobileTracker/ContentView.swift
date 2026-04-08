@@ -1,9 +1,8 @@
+import KAutomobileTrackerCore
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject private var trips: TripRepository
-    @EnvironmentObject private var bluetooth: BluetoothDashcamService
     @EnvironmentObject private var analysis: VideoAnalysisEngine
 
     @State private var selectedTrip: TripRecord?
@@ -25,6 +24,7 @@ struct ContentView: View {
                     systemImage: "car.side",
                     description: Text("Choose a saved trip or start a new tracking session.")
                 )
+                .accessibilityLabel("No trip selected")
             }
         }
         .sheet(isPresented: $showSessionSheet) {

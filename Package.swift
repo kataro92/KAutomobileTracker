@@ -8,12 +8,23 @@ let package = Package(
     ],
     products: [
         .executable(name: "KAutomobileTracker", targets: ["KAutomobileTracker"]),
+        .library(name: "KAutomobileTrackerCore", targets: ["KAutomobileTrackerCore"]),
     ],
     targets: [
+        .target(
+            name: "KAutomobileTrackerCore",
+            path: "Sources/KAutomobileTrackerCore"
+        ),
         .executableTarget(
             name: "KAutomobileTracker",
+            dependencies: ["KAutomobileTrackerCore"],
             path: "Sources/KAutomobileTracker",
             exclude: ["Resources/Info.plist"]
+        ),
+        .testTarget(
+            name: "KAutomobileTrackerTests",
+            dependencies: ["KAutomobileTrackerCore"],
+            path: "Tests/KAutomobileTrackerTests"
         ),
     ]
 )

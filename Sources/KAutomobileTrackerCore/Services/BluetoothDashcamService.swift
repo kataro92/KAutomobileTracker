@@ -2,31 +2,35 @@ import Combine
 import CoreBluetooth
 import Foundation
 
-struct DiscoveredPeripheral: Identifiable, Hashable {
-    let id: UUID
-    let name: String
-    let rssi: Int
+public struct DiscoveredPeripheral: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public let name: String
+    public let rssi: Int
+
+    public init(id: UUID, name: String, rssi: Int) {
+        self.id = id
+        self.name = name
+        self.rssi = rssi
+    }
 }
 
-/// Links to a dashcam over Bluetooth Low Energy. Video is not carried over BLE; pairing indicates
-/// the active dashcam for trip metadata. Import recorded files from the camera’s storage when needed.
 @MainActor
-final class BluetoothDashcamService: NSObject, ObservableObject {
-    @Published private(set) var bluetoothState: CBManagerState = .unknown
-    @Published private(set) var discovered: [DiscoveredPeripheral] = []
-    @Published private(set) var connectedPeripheralName: String?
-    @Published private(set) var statusMessage: String = "Bluetooth idle."
+public final class BluetoothDashcamService: NSObject, ObservableObject {
+    @Published public private(set) var bluetoothState: CBManagerState = .unknown
+    @Published public private(set) var discovered: [DiscoveredPeripheral] = []
+    @Published public private(set) var connectedPeripheralName: String?
+    @Published public private(set) var statusMessage: String = "Bluetooth idle."
 
     private var central: CBCentralManager!
     private var connected: CBPeripheral?
     private var peripheralCache: [UUID: CBPeripheral] = [:]
 
-    override init() {
+    public override init() {
         super.init()
         central = CBCentralManager(delegate: self, queue: nil, options: [CBCentralManagerOptionShowPowerAlertKey: true])
     }
 
-    func startScanning() {
+    public func startScanning() {
         guard central.state == .poweredOn else {
             statusMessage = "Turn on Bluetooth to scan for dashcams."
             return
@@ -34,18 +38,20 @@ final class BluetoothDashcamService: NSObject, ObservableObject {
         discovered = []
         statusMessage = "Scanning for peripherals…"
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        AppLog.bluetooth.debug("Started BLE scan")
     }
 
-    func stopScanning() {
+    public func stopScanning() {
         central.stopScan()
         if connected == nil {
             statusMessage = "Scan stopped."
         }
     }
 
-    func connect(to id: UUID) {
+    public func connect(to id: UUID) {
         guard let peripheral = peripheralCache[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first else {
             statusMessage = "Could not resolve peripheral."
+            AppLog.bluetooth.notice("Connect failed: unknown peripheral id")
             return
         }
         stopScanning()
@@ -55,7 +61,7 @@ final class BluetoothDashcamService: NSObject, ObservableObject {
         central.connect(peripheral, options: nil)
     }
 
-    func disconnect() {
+    public func disconnect() {
         if let p = connected {
             central.cancelPeripheralConnection(p)
         }
@@ -66,7 +72,7 @@ final class BluetoothDashcamService: NSObject, ObservableObject {
 }
 
 extension BluetoothDashcamService: CBCentralManagerDelegate {
-    nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
+    nonisolated public func centralManagerDidUpdateState(_ central: CBCentralManager) {
         Task { @MainActor in
             bluetoothState = central.state
             switch central.state {
@@ -82,7 +88,7 @@ extension BluetoothDashcamService: CBCentralManagerDelegate {
         }
     }
 
-    nonisolated func centralManager(
+    nonisolated public func centralManager(
         _ central: CBCentralManager,
         didDiscover peripheral: CBPeripheral,
         advertisementData: [String: Any],
@@ -99,27 +105,29 @@ extension BluetoothDashcamService: CBCentralManagerDelegate {
         }
     }
 
-    nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+    nonisolated public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         Task { @MainActor in
             connectedPeripheralName = peripheral.name ?? "Connected device"
             statusMessage = "Linked to \(connectedPeripheralName ?? "dashcam"). Import video files for analysis."
+            AppLog.bluetooth.info("Connected peripheral \(self.connectedPeripheralName ?? "")")
             peripheral.discoverServices(nil)
         }
     }
 
-    nonisolated func centralManager(
+    nonisolated public func centralManager(
         _ central: CBCentralManager,
         didFailToConnect peripheral: CBPeripheral,
         error: Error?
     ) {
         Task { @MainActor in
             statusMessage = error?.localizedDescription ?? "Connection failed."
+            AppLog.bluetooth.error("Connect failed: \(error?.localizedDescription ?? "unknown")")
             connected = nil
             connectedPeripheralName = nil
         }
     }
 
-    nonisolated func centralManager(
+    nonisolated public func centralManager(
         _ central: CBCentralManager,
         didDisconnectPeripheral peripheral: CBPeripheral,
         error: Error?
@@ -133,7 +141,5 @@ extension BluetoothDashcamService: CBCentralManagerDelegate {
 }
 
 extension BluetoothDashcamService: CBPeripheralDelegate {
-    nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        // Services vary by manufacturer; connection alone marks the linked dashcam for this trip.
-    }
+    nonisolated public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {}
 }

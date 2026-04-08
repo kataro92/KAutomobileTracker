@@ -1,3 +1,4 @@
+import KAutomobileTrackerCore
 import SwiftUI
 
 struct TripDetailView: View {
@@ -23,6 +24,7 @@ struct TripDetailView: View {
                 Image(systemName: trip.isTracked ? "checkmark.seal.fill" : "seal")
                     .foregroundStyle(trip.isTracked ? .green : .secondary)
                     .font(.title2)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(trip.isTracked ? "Tracked trip" : "Incomplete")
                         .font(.title2.weight(.semibold))
@@ -30,6 +32,7 @@ struct TripDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .accessibilityElement(children: .combine)
             Text("Started \(trip.startedAt.formatted(date: .long, time: .shortened))")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -88,6 +91,7 @@ struct TripDetailView: View {
                                 .frame(height: 8)
                                 .frame(maxWidth: 120)
                             }
+                            .accessibilityLabel("\(key) lane estimate count \(count)")
                         }
                     }
                 }
@@ -114,6 +118,7 @@ struct TripDetailView: View {
                     }
                 }
                 .frame(minHeight: 160)
+                .accessibilityLabel("Sign observations table")
             }
         }
     }

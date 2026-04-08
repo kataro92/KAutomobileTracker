@@ -6,20 +6,19 @@ import Foundation
 import Metal
 import Vision
 
-/// Metal-backed Core Image context and throttled Vision requests to stay within ~16 GB RAM on Apple Silicon.
-final class VideoAnalysisEngine: ObservableObject {
-    @Published private(set) var isRunning = false
-    @Published private(set) var lastMotion: Double = 0
-    @Published private(set) var lastLane: LaneEstimate = .unknown
-    @Published private(set) var recentSigns: [SignObservation] = []
-    @Published private(set) var processedFrames: Int = 0
-    @Published private(set) var status: String = ""
+@MainActor
+public final class VideoAnalysisEngine: ObservableObject, VideoAnalyzing {
+    @Published public private(set) var isRunning = false
+    @Published public private(set) var lastMotion: Double = 0
+    @Published public private(set) var lastLane: LaneEstimate = .unknown
+    @Published public private(set) var recentSigns: [SignObservation] = []
+    @Published public private(set) var processedFrames: Int = 0
+    @Published public private(set) var status: String = ""
 
-    private let processingQueue = DispatchQueue(label: "com.kautomobile.analysis", qos: .userInitiated)
     private let ciContext: CIContext
     private let motionDimension = CGSize(width: 96, height: 54)
     private let visionMaxWidth: CGFloat = 720
-    private let minInterval: TimeInterval = 0.22
+    private var minInterval: TimeInterval
     private var lastProcessTime: CFAbsoluteTime = 0
     private var previousLuma: [UInt8]?
     private var reader: AVAssetReader?
@@ -27,53 +26,54 @@ final class VideoAnalysisEngine: ObservableObject {
     private var signThrottle: CFAbsoluteTime = 0
     private let signMinInterval: TimeInterval = 0.55
 
-    private var laneCounts: [LaneEstimate: Int] = [:]
-    private var motionSum: Double = 0
-    private var signAccumulator: [SignObservation] = []
     private var cancelFlag = false
+    private var analysisTask: Task<Void, Never>?
 
-    init() {
+    public init(minSampleInterval: TimeInterval? = nil) {
         if let device = MTLCreateSystemDefaultDevice() {
             ciContext = CIContext(mtlDevice: device, options: [.cacheIntermediates: false])
         } else {
             ciContext = CIContext(options: [.useSoftwareRenderer: false])
         }
+        minInterval = minSampleInterval ?? AppUserSettings.analysisMinInterval
     }
 
-    func resetSessionCounters() {
-        laneCounts = [:]
-        motionSum = 0
-        signAccumulator = []
+    public func resetSessionCounters() {
+        lastProcessTime = 0
+        signThrottle = 0
+        previousLuma = nil
         processedFrames = 0
         recentSigns = []
         lastMotion = 0
         lastLane = .unknown
-        previousLuma = nil
+        status = ""
     }
 
-    func cancel() {
+    public func cancel() {
         cancelFlag = true
+        analysisTask?.cancel()
         reader?.cancelReading()
+        AppLog.analysis.notice("Analysis cancel requested")
     }
 
-    /// Analyzes video at reduced rate and resolution. Calls `onComplete` with aggregates on the main actor.
-    func runAnalysis(
+    public func runAnalysis(
         fileURL: URL,
         simulated: Bool,
         onProgress: @escaping @Sendable (Int) -> Void,
         onComplete: @escaping @MainActor (Double, [LaneEstimate: Int], [SignObservation], Int) -> Void
     ) {
         cancelFlag = false
+        analysisTask?.cancel()
+        minInterval = AppUserSettings.analysisMinInterval
+        resetSessionCounters()
         isRunning = true
         status = simulated ? "Simulated trip…" : "Analyzing video (throttled for efficiency)…"
 
-        processingQueue.async { [weak self] in
+        analysisTask = Task { @MainActor [weak self] in
             guard let self else { return }
             if simulated {
-                self.runSimulated(onProgress: onProgress, onComplete: onComplete)
-                return
-            }
-            Task {
+                await self.runSimulated(onProgress: onProgress, onComplete: onComplete)
+            } else {
                 await self.runRealVideo(url: fileURL, onProgress: onProgress, onComplete: onComplete)
             }
         }
@@ -82,15 +82,20 @@ final class VideoAnalysisEngine: ObservableObject {
     private func runSimulated(
         onProgress: @escaping @Sendable (Int) -> Void,
         onComplete: @escaping @MainActor (Double, [LaneEstimate: Int], [SignObservation], Int) -> Void
-    ) {
+    ) async {
         let frames = 48
         var lanes: [LaneEstimate: Int] = [:]
         var motion: Double = 0
         var signs: [SignObservation] = []
         let start = Date()
 
-        for i in 0..<frames where !cancelFlag {
-            Thread.sleep(forTimeInterval: 0.04)
+        for i in 0..<frames {
+            if Task.isCancelled || cancelFlag { break }
+            do {
+                try await Task.sleep(nanoseconds: 40_000_000)
+            } catch {
+                break
+            }
             let lane: LaneEstimate = [LaneEstimate.left, .center, .right][i % 3]
             lanes[lane, default: 0] += 1
             motion += 0.15 + Double(i % 5) * 0.02
@@ -103,16 +108,18 @@ final class VideoAnalysisEngine: ObservableObject {
                     )
                 )
             }
-            Task { @MainActor in self.processedFrames = i + 1 }
+            processedFrames = i + 1
             onProgress(i + 1)
         }
 
-        let avgMotion = frames > 0 ? motion / Double(frames) : 0
-        Task { @MainActor in
-            self.isRunning = false
-            self.status = cancelFlag ? "Cancelled." : "Simulation complete."
-            onComplete(avgMotion, lanes, signs, frames)
+        let n = processedFrames
+        let avgMotion = n > 0 ? motion / Double(n) : 0
+        isRunning = false
+        status = (Task.isCancelled || cancelFlag) ? "Cancelled." : "Simulation complete."
+        if Task.isCancelled || cancelFlag {
+            AppLog.analysis.debug("Simulation cancelled after \(n) samples")
         }
+        onComplete(avgMotion, lanes, signs, n)
     }
 
     private func runRealVideo(
@@ -125,20 +132,18 @@ final class VideoAnalysisEngine: ObservableObject {
         do {
             let tracks = try await asset.loadTracks(withMediaType: .video)
             guard let t = tracks.first else {
-                await MainActor.run {
-                    self.isRunning = false
-                    self.status = "No video track."
-                    onComplete(0, [:], [], 0)
-                }
+                isRunning = false
+                status = KAutoError.videoNoTrack.errorDescription ?? "No video track."
+                AppLog.analysis.error("No video track for \(url.lastPathComponent)")
+                onComplete(0, [:], [], 0)
                 return
             }
             track = t
         } catch {
-            await MainActor.run {
-                self.isRunning = false
-                self.status = "Could not load video."
-                onComplete(0, [:], [], 0)
-            }
+            isRunning = false
+            status = KAutoError.videoReaderFailed(reason: error.localizedDescription).errorDescription ?? ""
+            AppLog.analysis.error("Load tracks failed: \(error.localizedDescription)")
+            onComplete(0, [:], [], 0)
             return
         }
 
@@ -146,11 +151,9 @@ final class VideoAnalysisEngine: ObservableObject {
         do {
             reader = try AVAssetReader(asset: asset)
         } catch {
-            await MainActor.run {
-                self.isRunning = false
-                self.status = "Could not open video."
-                onComplete(0, [:], [], 0)
-            }
+            isRunning = false
+            status = KAutoError.videoReaderFailed(reason: error.localizedDescription).errorDescription ?? ""
+            onComplete(0, [:], [], 0)
             return
         }
 
@@ -160,21 +163,17 @@ final class VideoAnalysisEngine: ObservableObject {
         let trackOutput = AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
         trackOutput.alwaysCopiesSampleData = false
         guard reader.canAdd(trackOutput) else {
-            await MainActor.run {
-                self.isRunning = false
-                self.status = "Reader configuration failed."
-                onComplete(0, [:], [], 0)
-            }
+            isRunning = false
+            status = "Reader configuration failed."
+            onComplete(0, [:], [], 0)
             return
         }
         reader.add(trackOutput)
         guard reader.startReading() else {
             let readerError = reader.error?.localizedDescription ?? "Reader failed to start."
-            await MainActor.run {
-                self.isRunning = false
-                self.status = readerError
-                onComplete(0, [:], [], 0)
-            }
+            isRunning = false
+            status = readerError
+            onComplete(0, [:], [], 0)
             return
         }
 
@@ -182,6 +181,7 @@ final class VideoAnalysisEngine: ObservableObject {
         self.output = trackOutput
         lastProcessTime = 0
         signThrottle = 0
+        previousLuma = nil
 
         var localLane: [LaneEstimate: Int] = [:]
         var localMotionSum: Double = 0
@@ -193,35 +193,42 @@ final class VideoAnalysisEngine: ObservableObject {
 
         var endOfStream = false
         while !cancelFlag && !endOfStream {
-            autoreleasepool {
-                guard let sample = trackOutput.copyNextSampleBuffer(),
-                      let buffer = CMSampleBufferGetImageBuffer(sample)
-                else {
-                    endOfStream = true
-                    return
-                }
-
-                let now = CFAbsoluteTimeGetCurrent()
-                if now - lastProcessTime < minInterval {
-                    return
-                }
-                lastProcessTime = now
-
-                let motion = self.motionScore(current: buffer)
-                localMotionSum += motion
-                let lane = self.laneEstimate(from: buffer)
-                localLane[lane, default: 0] += 1
-                count += 1
-
-                if now - signThrottle >= signMinInterval {
-                    signThrottle = now
-                    if let observations = self.recognizeSigns(in: buffer, request: textRequest) {
-                        localSigns.append(contentsOf: observations)
+            if Task.isCancelled {
+                cancelFlag = true
+                break
+            }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                autoreleasepool {
+                    defer { cont.resume() }
+                    guard let sample = trackOutput.copyNextSampleBuffer(),
+                          let buffer = CMSampleBufferGetImageBuffer(sample)
+                    else {
+                        endOfStream = true
+                        return
                     }
-                }
 
-                Task { @MainActor in self.processedFrames = count }
-                onProgress(count)
+                    let now = CFAbsoluteTimeGetCurrent()
+                    if now - lastProcessTime < minInterval {
+                        return
+                    }
+                    lastProcessTime = now
+
+                    let motion = motionScore(current: buffer)
+                    localMotionSum += motion
+                    let lane = laneEstimate(from: buffer)
+                    localLane[lane, default: 0] += 1
+                    count += 1
+
+                    if now - signThrottle >= signMinInterval {
+                        signThrottle = now
+                        if let observations = recognizeSigns(in: buffer, request: textRequest) {
+                            localSigns.append(contentsOf: observations)
+                        }
+                    }
+
+                    processedFrames = count
+                    onProgress(count)
+                }
             }
 
             if reader.status != .reading {
@@ -233,13 +240,14 @@ final class VideoAnalysisEngine: ObservableObject {
         let laneSnapshot = localLane
         let signsSnapshot = localSigns
         let countSnapshot = count
-        await MainActor.run {
-            self.isRunning = false
-            self.reader = nil
-            self.output = nil
-            self.status = self.cancelFlag ? "Cancelled." : "Analysis complete."
-            onComplete(avg, laneSnapshot, signsSnapshot, countSnapshot)
+        isRunning = false
+        self.reader = nil
+        self.output = nil
+        status = (cancelFlag || Task.isCancelled) ? "Cancelled." : "Analysis complete."
+        if countSnapshot > 0 {
+            AppLog.analysis.info("Analysis finished: \(countSnapshot) samples, avgMotion=\(avg, privacy: .public)")
         }
+        onComplete(avg, laneSnapshot, signsSnapshot, countSnapshot)
     }
 
     private func lumaRow(from buffer: CVPixelBuffer) -> [UInt8]? {
@@ -273,9 +281,7 @@ final class VideoAnalysisEngine: ObservableObject {
             sum += abs(Int(luma[i]) - Int(prev[i]))
         }
         let norm = Double(sum) / Double(luma.count * 255)
-        Task { @MainActor in
-            self.lastMotion = norm
-        }
+        lastMotion = norm
         return norm
     }
 
@@ -329,14 +335,6 @@ final class VideoAnalysisEngine: ObservableObject {
         for i in 0..<(w - 1) {
             grad[i] = abs(Int(row[i + 1]) - Int(row[i]))
         }
-        let third = max(1, grad.count / 3)
-        var left = 0
-        var mid = 0
-        var right = 0
-        for i in 0..<third { left += grad[i] }
-        for i in third..<(2 * third) { mid += grad[i] }
-        for i in (2 * third)..<grad.count { right += grad[i] }
-
         let centroidNumerator = (0..<grad.count).reduce(0) { $0 + $1 * grad[$1] }
         let denom = grad.reduce(0, +)
         let lane: LaneEstimate
@@ -353,9 +351,7 @@ final class VideoAnalysisEngine: ObservableObject {
             }
         }
 
-        Task { @MainActor in
-            self.lastLane = lane
-        }
+        lastLane = lane
         return lane
     }
 
@@ -400,9 +396,7 @@ final class VideoAnalysisEngine: ObservableObject {
             }
         }
 
-        Task { @MainActor in
-            self.recentSigns = Array(found.prefix(6))
-        }
+        recentSigns = Array(found.prefix(6))
         return found
     }
 

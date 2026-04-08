@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Development bundle only. For sandbox, Bluetooth, and notarization, archive from Xcode
+# with Config/KAutomobileTracker.entitlements — see docs/DISTRIBUTION.md
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"

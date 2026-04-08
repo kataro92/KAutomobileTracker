@@ -1,3 +1,5 @@
+import AppKit
+import KAutomobileTrackerCore
 import SwiftUI
 
 @main
@@ -16,5 +18,17 @@ struct KAutomobileTrackerApp: App {
                 .environmentObject(analysis)
         }
         .defaultSize(width: 980, height: 640)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("KAutomobile Tracker Help") {
+                    NSWorkspace.shared.open(URL(string: "https://github.com/kataro92/KAutomobileTracker/blob/main/README.md")!)
+                }
+            }
+        }
+
+        Settings {
+            SettingsView()
+                .environmentObject(niceDVRWiFi)
+        }
     }
 }
