@@ -42,4 +42,4 @@ Open **Package.swift** in Xcode for debugging UI with full entitlements (see [XC
 
 ## Licensing
 
-Add or follow the repository’s license once one is chosen; until then, assume default copyright applies.
+This repository is under the [Apache License 2.0](../LICENSE). By contributing, you agree your contributions are licensed under those same terms unless you state otherwise explicitly in the pull request.

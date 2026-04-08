@@ -2,7 +2,8 @@
 
 macOS-only SwiftUI app that helps **record and review driving trips** using footage from a Wi‑Fi dashcam (e.g. [Nice DVR](https://apps.apple.com/app/nice-dvr/id6449487004)–style cameras) or local video files. It estimates **vehicle motion**, rough **lane position over time**, and **road-sign–like text** via Apple **Vision**, optimized for **Apple Silicon** (throttled analysis, Metal-backed image work).
 
-**Repository:** [github.com/kataro92/KAutomobileTracker](https://github.com/kataro92/KAutomobileTracker)
+**Repository:** [github.com/kataro92/KAutomobileTracker](https://github.com/kataro92/KAutomobileTracker)  
+**License:** [Apache License 2.0](LICENSE) ([SPDX](https://spdx.org/licenses/Apache-2.0): `Apache-2.0`)
 
 ![CI](https://github.com/kataro92/KAutomobileTracker/actions/workflows/ci.yml/badge.svg?branch=main)
 
@@ -96,6 +97,7 @@ Extend HTTP dashcams via `DashcamWiFiListing` / `DashcamWiFiConnector` — see [
 ```
 KAutomobileTracker/
 ├── Package.swift
+├── LICENSE                           # Apache-2.0
 ├── Config/KAutomobileTracker.entitlements
 ├── build_app.sh
 ├── .github/workflows/ci.yml
@@ -116,4 +118,8 @@ KAutomobileTracker/
 
 ## License
 
-Specify a license in the repository if you intend open-source distribution (this README does not choose one for you).
+This project is licensed under the **Apache License, Version 2.0**. See the [`LICENSE`](LICENSE) file for the full text.
+
+- You may use, modify, and distribute this software under the terms of that license.
+- **SPDX identifier:** `Apache-2.0`
+- **Copyright:** see the notice in [`LICENSE`](LICENSE) (appendix). Contributors who submit changes agree their contributions are licensed under the same terms unless otherwise stated.
