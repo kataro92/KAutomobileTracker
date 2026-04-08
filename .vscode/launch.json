@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:KAutomobileTracker}",
+            "name": "Debug KAutomobileTracker",
+            "program": "${workspaceFolder:KAutomobileTracker}/.build/debug/KAutomobileTracker",
+            "preLaunchTask": "swift: Build Debug KAutomobileTracker"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:KAutomobileTracker}",
+            "name": "Release KAutomobileTracker",
+            "program": "${workspaceFolder:KAutomobileTracker}/.build/release/KAutomobileTracker",
+            "preLaunchTask": "swift: Build Release KAutomobileTracker"
+        }
+    ]
+}
