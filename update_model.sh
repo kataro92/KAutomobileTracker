@@ -53,9 +53,39 @@ venv_python_ok() {
 # True if $1 looks like a BDD100K root (det_20 labels present; matches train_bdd100k_finetune.py discovery).
 looks_like_bdd100k() {
   local p="$1"
-  [[ -d "${p}/labels/det_20/train" ]] \
-    || [[ -d "${p}/bdd100k/labels/det_20/train" ]] \
-    || [[ -d "${p}/labels/bdd100k/det_20/train" ]]
+  local r s t parent parent_leaf labels_base
+  local candidates=("${p}")
+  [[ -d "${p}/bdd100k" ]] && candidates+=("${p}/bdd100k")
+  [[ -d "${p}/bdd100k_labels" ]] && candidates+=("${p}/bdd100k_labels")
+  [[ -d "${p}/bdd100k_labels_release" ]] && candidates+=("${p}/bdd100k_labels_release")
+  local parent_dir
+  parent_dir="$(dirname "${p}")"
+  [[ -d "${parent_dir}/bdd100k" ]] && candidates+=("${parent_dir}/bdd100k")
+  [[ -d "${parent_dir}/bdd100k_labels" ]] && candidates+=("${parent_dir}/bdd100k_labels")
+  [[ -d "${parent_dir}/bdd100k_labels_release" ]] && candidates+=("${parent_dir}/bdd100k_labels_release")
+  for r in "${candidates[@]}"; do
+    for s in \
+      "${r}/labels/det_20/train" \
+      "${r}/bdd100k/labels/det_20/train" \
+      "${r}/labels/bdd100k/det_20/train"; do
+      [[ -d "${s}" ]] && return 0
+    done
+    for labels_base in "${r}/labels" "${r}/bdd100k/labels" "${r}/labels/bdd100k"; do
+      [[ -f "${labels_base}/bdd100k_labels_images_train.json" ]] && return 0
+    done
+  done
+  # Nested zip layouts: any .../det_20/train within a shallow find (case-insensitive names)
+  while IFS= read -r t; do
+    [[ -z "${t}" ]] && continue
+    parent="$(dirname "${t}")"
+    parent_leaf="$(basename "${parent}" | tr '[:upper:]' '[:lower:]')"
+    [[ "${parent_leaf}" == "det_20" ]] && return 0
+  done < <(find "${p}" -maxdepth 16 -type d -iname train 2>/dev/null)
+  while IFS= read -r t; do
+    [[ -z "${t}" ]] && continue
+    [[ "$(basename "${t}" | tr '[:upper:]' '[:lower:]')" == "bdd100k_labels_images_train.json" ]] && return 0
+  done < <(find "${p}" -maxdepth 16 -type f -iname "*.json" 2>/dev/null)
+  return 1
 }
 
 # Resolve dataset root: BDD100K_DIR, then repo ./.data, ./.data/bdd100k, ./bdd100k, ~/datasets/bdd100k, ~/bdd100k.
@@ -72,8 +102,9 @@ resolve_bdd100k_dir() {
       echo "${p}"
       return 0
     fi
-    echo "error: BDD100K_DIR does not look like BDD100K det_20: ${p}" >&2
-    echo "  Expected .../labels/det_20/train (see https://doc.bdd100k.com/)" >&2
+    echo "error: BDD100K_DIR does not look like BDD100K labels: ${p}" >&2
+    echo "  Expected .../det_20/train or labels/bdd100k_labels_images_train.json (zips may be nested)." >&2
+    echo "  See https://doc.bdd100k.com/" >&2
     exit 1
   fi
   for p in "${ROOT}/.data" "${ROOT}/.data/bdd100k" "${ROOT}/bdd100k" "${HOME}/datasets/bdd100k" "${HOME}/bdd100k"; do

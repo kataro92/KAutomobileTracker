@@ -6,7 +6,10 @@
 # fails with "OpenBLAS not found" unless you install openblas. Pinning >=1.11.4 keeps binary wheels.
 numpy>=1.26.0
 scipy>=1.11.4
-ultralytics[export]>=8.4.0
+# CoreML path uses coremltools only; ultralytics[export] also pulls TensorFlow (no cp313-win wheels).
+ultralytics>=8.4.0
+coremltools>=8.0
+ijson>=3.3.0
 Pillow
 tqdm
 PyYAML

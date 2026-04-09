@@ -18,6 +18,7 @@ import random
 import shutil
 import sys
 import tempfile
+from collections import deque
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -175,16 +176,136 @@ def try_image_size(path: Path) -> tuple[float, float]:
         return 1280.0, 720.0
 
 
+def _det20_dir_has_train_split(d: Path) -> bool:
+    """True if d is a det_20 labels folder with a train split subdir (any common casing)."""
+    if d.name.casefold() != "det_20":
+        return False
+    try:
+        for ch in d.iterdir():
+            if ch.is_dir() and ch.name.casefold() == "train":
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def _bdd_split_subdir(labels_parent: Path, split: str) -> Path | None:
+    """det_20/{train|val|...} with correct on-disk casing (Linux-safe)."""
+    try:
+        direct = labels_parent / split
+        if direct.is_dir():
+            return direct
+    except OSError:
+        pass
+    want = split.casefold()
+    try:
+        for ch in labels_parent.iterdir():
+            if ch.is_dir() and ch.name.casefold() == want:
+                return ch
+    except OSError:
+        pass
+    return None
+
+
+def _has_monolithic_split_json(labels_dir: Path, split: str) -> bool:
+    """True when labels_dir contains bdd100k_labels_images_{split}.json (case-insensitive)."""
+    want = f"bdd100k_labels_images_{split}.json".casefold()
+    try:
+        for ch in labels_dir.iterdir():
+            if ch.is_file() and ch.suffix.casefold() == ".json" and ch.name.casefold() == want:
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def _split_json_files(labels_parent: Path, split: str) -> list[Path]:
+    """
+    Return JSON label files for split from either:
+    - det_20/{split}/*.json (per-image JSON files), or
+    - labels/bdd100k_labels_images_{split}.json (single monolithic file).
+    """
+    json_dir = _bdd_split_subdir(labels_parent, split)
+    if json_dir is not None:
+        return sorted(json_dir.glob("*.json"))
+
+    want = f"bdd100k_labels_images_{split}.json".casefold()
+    out: list[Path] = []
+    try:
+        for ch in labels_parent.iterdir():
+            if ch.is_file() and ch.suffix.casefold() == ".json" and ch.name.casefold() == want:
+                out.append(ch)
+    except OSError:
+        pass
+    return out
+
+
+def _iter_frames_from_json(path: Path) -> Iterable[dict[str, Any]]:
+    """Yield frame dicts from either per-image JSONs or monolithic split JSON arrays."""
+    # Monolithic official files are huge; stream with ijson when available.
+    if path.name.casefold().startswith("bdd100k_labels_images_"):
+        try:
+            import ijson  # type: ignore
+
+            with path.open("rb") as f:
+                for item in ijson.items(f, "item"):
+                    if isinstance(item, dict):
+                        yield item
+            return
+        except Exception:
+            # Fallback to stdlib json.load if ijson is unavailable.
+            pass
+
+    try:
+        raw = load_json_label(path)
+    except Exception:
+        return
+    for frame in extract_frames(raw):
+        yield frame
+
+
+def _find_det20_labels_parent_deep(bdd_root: Path, *, max_depth: int = 16, max_visits: int = 100_000) -> Path | None:
+    """Breadth-first search for a det_20 directory that contains a train/ subdir (nested zip layouts)."""
+    root = bdd_root.resolve()
+    q: deque[tuple[Path, int]] = deque([(root, 0)])
+    visits = 0
+    while q and visits < max_visits:
+        d, depth = q.popleft()
+        visits += 1
+        if depth > max_depth:
+            continue
+        if _det20_dir_has_train_split(d):
+            return d
+        try:
+            subs = sorted(x for x in d.iterdir() if x.is_dir())
+        except OSError:
+            continue
+        for ch in subs:
+            q.append((ch, depth + 1))
+    return None
+
+
 def discover_bdd100k_layout(bdd_root: Path) -> tuple[Path, list[Path]]:
     """
     Returns (labels_train_val_parent, image_search_roots).
-    labels: directory containing train/ subfolder with per-image JSON (det_20).
+    labels: either det_20 dir with train/ subfolder or labels dir with monolithic split JSONs.
     """
-    roots = [bdd_root]
-    for sub in ("bdd100k", "bdd100k_labels", "bdd100k_labels_release"):
-        p = bdd_root / sub
-        if p.is_dir():
-            roots.append(p)
+    roots: list[Path] = [bdd_root]
+    name_candidates = frozenset({"bdd100k", "bdd100k_labels", "bdd100k_labels_release"})
+    try:
+        for ch in bdd_root.iterdir():
+            if ch.is_dir() and ch.name.casefold() in name_candidates:
+                roots.append(ch)
+    except OSError:
+        pass
+    # Common local layout: images in .data/bdd100k and labels in sibling .data/bdd100k_labels_release.
+    try:
+        parent = bdd_root.parent
+        for sib in parent.iterdir():
+            if sib.is_dir() and sib.name.casefold() in name_candidates:
+                roots.append(sib)
+    except OSError:
+        pass
 
     label_dirs: list[Path] = []
     for r in roots:
@@ -193,8 +314,20 @@ def discover_bdd100k_layout(bdd_root: Path) -> tuple[Path, list[Path]]:
             r / "bdd100k" / "labels" / "det_20",
             r / "labels" / "bdd100k" / "det_20",
         ):
-            if pat.is_dir() and (pat / "train").is_dir():
+            if pat.is_dir() and _det20_dir_has_train_split(pat):
                 label_dirs.append(pat)
+        for labels_root in (
+            r / "labels",
+            r / "bdd100k" / "labels",
+            r / "labels" / "bdd100k",
+        ):
+            if labels_root.is_dir() and _has_monolithic_split_json(labels_root, "train"):
+                label_dirs.append(labels_root)
+
+    if not label_dirs:
+        deep = _find_det20_labels_parent_deep(bdd_root)
+        if deep is not None:
+            label_dirs.append(deep)
 
     if not label_dirs:
         raise FileNotFoundError(
@@ -228,24 +361,19 @@ def convert_split(
 ) -> tuple[int, list[Path]]:
     """Convert BDD100K det_20 JSON -> YOLO txt. Returns (count_written, list of image paths)."""
     labels_parent, img_roots = discover_bdd100k_layout(bdd_root)
-    json_dir = labels_parent / split
-    if not json_dir.is_dir():
+    json_files = _split_json_files(labels_parent, split)
+    if not json_files:
         return 0, []
 
     ensure_dir(out_images)
     ensure_dir(out_labels)
     written = 0
     image_paths: list[Path] = []
-    json_files = sorted(json_dir.glob("*.json"))
     if limit is not None:
         json_files = json_files[:limit]
 
     for jf in json_files:
-        try:
-            raw = load_json_label(jf)
-        except Exception:
-            continue
-        for frame in extract_frames(raw):
+        for frame in _iter_frames_from_json(jf):
             name = frame_image_name(frame)
             if not name:
                 continue

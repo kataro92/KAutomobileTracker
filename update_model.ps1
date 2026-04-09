@@ -28,10 +28,96 @@ function Test-IsWindowsPlatform {
 
 function Test-LooksLikeBdd100k {
   param([string]$Path)
-  $a = Join-Path (Join-Path (Join-Path $Path 'labels') 'det_20') 'train'
-  $b = Join-Path (Join-Path (Join-Path (Join-Path $Path 'bdd100k') 'labels') 'det_20') 'train'
-  $c = Join-Path (Join-Path (Join-Path (Join-Path $Path 'labels') 'bdd100k') 'det_20') 'train'
-  return ((Test-Path -LiteralPath $a) -or (Test-Path -LiteralPath $b) -or (Test-Path -LiteralPath $c))
+  # Match scripts/train_bdd100k_finetune.py discover_bdd100k_layout() (shallow + bounded deep search).
+  if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $false }
+  $fullRoot = (Resolve-Path -LiteralPath $Path).Path
+  function Test-HasMonolithicBddLabelsJson {
+    param([string]$LabelsDir)
+    if (-not (Test-Path -LiteralPath $LabelsDir -PathType Container)) { return $false }
+    try {
+      foreach ($f in [System.IO.Directory]::EnumerateFiles($LabelsDir, '*.json')) {
+        $name = [System.IO.Path]::GetFileName($f)
+        if ([string]::Equals($name, 'bdd100k_labels_images_train.json', [System.StringComparison]::OrdinalIgnoreCase)) {
+          return $true
+        }
+      }
+    } catch {
+      return $false
+    }
+    return $false
+  }
+  $roots = @($fullRoot)
+  $nameCandidates = @('bdd100k', 'bdd100k_labels', 'bdd100k_labels_release')
+  foreach ($sub in $nameCandidates) {
+    $child = Join-Path $fullRoot $sub
+    if (Test-Path -LiteralPath $child -PathType Container) { $roots += $child }
+  }
+  # Common local layout: images in .data\bdd100k and labels in sibling .data\bdd100k_labels_release.
+  $parent = Split-Path -Path $fullRoot -Parent
+  if ($parent -and (Test-Path -LiteralPath $parent -PathType Container)) {
+    foreach ($sub in $nameCandidates) {
+      $sib = Join-Path $parent $sub
+      if (Test-Path -LiteralPath $sib -PathType Container) { $roots += $sib }
+    }
+  }
+  $roots = @($roots | Select-Object -Unique)
+  foreach ($r in $roots) {
+    foreach ($detRel in @(
+        @('labels', 'det_20'),
+        @('bdd100k', 'labels', 'det_20'),
+        @('labels', 'bdd100k', 'det_20')
+      )) {
+      $det20 = $r
+      foreach ($part in $detRel) { $det20 = Join-Path $det20 $part }
+      $train = Join-Path $det20 'train'
+      if ((Test-Path -LiteralPath $det20 -PathType Container) -and (Test-Path -LiteralPath $train -PathType Container)) {
+        return $true
+      }
+    }
+    foreach ($labelsBase in @(
+        (Join-Path $r 'labels'),
+        (Join-Path (Join-Path $r 'bdd100k') 'labels'),
+        (Join-Path (Join-Path $r 'labels') 'bdd100k')
+      )) {
+      if (Test-HasMonolithicBddLabelsJson -LabelsDir $labelsBase) { return $true }
+    }
+  }
+  $maxDepth = 16
+  $maxVisits = 100000
+  $visits = 0
+  $q = [System.Collections.Queue]::new()
+  [void]$q.Enqueue(@($fullRoot, 0))
+  while ($q.Count -gt 0 -and $visits -lt $maxVisits) {
+    $item = $q.Dequeue()
+    $dir = [string]$item[0]
+    $depth = [int]$item[1]
+    $visits++
+    if ($depth -gt $maxDepth) { continue }
+    $leaf = Split-Path -Path $dir -Leaf
+    # Folder casing varies (Det_20, TRAIN); -eq would miss on NTFS with non-lowercase names.
+    if ($leaf -ieq 'det_20') {
+      try {
+        foreach ($sub in [System.IO.Directory]::EnumerateDirectories($dir)) {
+          if ([string]::Equals([System.IO.Path]::GetFileName($sub), 'train', [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+          }
+        }
+      } catch {
+        continue
+      }
+    }
+    if ([string]::Equals($leaf, 'labels', [System.StringComparison]::OrdinalIgnoreCase)) {
+      if (Test-HasMonolithicBddLabelsJson -LabelsDir $dir) { return $true }
+    }
+    try {
+      foreach ($child in [System.IO.Directory]::EnumerateDirectories($dir)) {
+        [void]$q.Enqueue(@($child, $depth + 1))
+      }
+    } catch {
+      continue
+    }
+  }
+  return $false
 }
 
 function Resolve-Bdd100kDir {
@@ -45,7 +131,7 @@ function Resolve-Bdd100kDir {
     if (Test-LooksLikeBdd100k $full) {
       return $full
     }
-    Write-Error "BDD100K_DIR does not look like BDD100K det_20: $full (expected labels\det_20\train). See https://doc.bdd100k.com/"
+    Write-Error "BDD100K_DIR does not look like BDD100K labels: $full (need ...\det_20\train or labels\bdd100k_labels_images_train.json; zips may be nested). See https://doc.bdd100k.com/"
   }
   foreach ($p in @(
       (Join-Path $RepoRoot '.data'),
@@ -76,16 +162,22 @@ function Get-TrainPythonExe {
   }
   $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
   if ($pyLauncher) {
-    foreach ($v in @('3.12', '3.13', '3.11')) {
-      $verLine = & py "-$v" -c "import sys; print(sys.version_info[0], sys.version_info[1])" 2>$null
-      if ($LASTEXITCODE -ne 0) { continue }
-      $parts = @($verLine.Trim() -split '\s+')
-      if ($parts.Count -lt 2) { continue }
-      $maj = [int]$parts[0]
-      $min = [int]$parts[1]
-      if ($maj -eq 3 -and $min -lt 14) {
-        return (& py "-$v" -c "import sys; print(sys.executable)").Trim()
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    try {
+      foreach ($v in @('3.12', '3.13', '3.11')) {
+        $verLine = & py "-$v" -c "import sys; print(sys.version_info[0], sys.version_info[1])" 2>$null
+        if ($LASTEXITCODE -ne 0) { continue }
+        $parts = @($verLine.Trim() -split '\s+')
+        if ($parts.Count -lt 2) { continue }
+        $maj = [int]$parts[0]
+        $min = [int]$parts[1]
+        if ($maj -eq 3 -and $min -lt 14) {
+          return (& py "-$v" -c "import sys; print(sys.executable)" 2>$null).Trim()
+        }
       }
+    } finally {
+      $ErrorActionPreference = $prevEap
     }
   }
   foreach ($name in @('python3.12', 'python3.13', 'python3.11', 'python')) {
@@ -131,7 +223,7 @@ function Enter-Venv {
   if (Test-IsWindowsPlatform) {
     $act = Join-Path $VenvRoot 'Scripts\Activate.ps1'
     if (-not (Test-Path -LiteralPath $act)) {
-      Write-Error "Missing $act — recreate .venv-train with: python -m venv .venv-train"
+      Write-Error "Missing $act - recreate .venv-train with: python -m venv .venv-train"
     }
     . $act
     return
