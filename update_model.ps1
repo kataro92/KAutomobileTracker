@@ -236,6 +236,30 @@ function Enter-Venv {
   $env:VIRTUAL_ENV = $VenvRoot
 }
 
+function Test-HasNvidiaGpu {
+  if (-not (Test-IsWindowsPlatform)) { return $false }
+  if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { return $false }
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  try {
+    & nvidia-smi -L 1>$null 2>$null
+    return ($LASTEXITCODE -eq 0)
+  } finally {
+    $ErrorActionPreference = $prevEap
+  }
+}
+
+function Test-TorchCudaAvailable {
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  try {
+    $out = & python -c "import torch,sys; sys.stdout.write('1' if torch.cuda.is_available() else '0')" 2>$null
+    return (($LASTEXITCODE -eq 0) -and ($out.Trim() -eq '1'))
+  } finally {
+    $ErrorActionPreference = $prevEap
+  }
+}
+
 $Root = $PSScriptRoot
 Set-Location -LiteralPath $Root
 
@@ -254,6 +278,10 @@ if (Test-Path -LiteralPath $VenvPath -PathType Container) {
 Enter-Venv -VenvRoot $VenvPath
 
 if (-not $env:SKIP_DEPS) {
+  if ((Test-HasNvidiaGpu) -and -not $env:FORCE_CPU) {
+    Write-Host "NVIDIA GPU detected. Installing CUDA PyTorch wheels (cu118)..."
+    python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu118 torch==2.6.0+cu118 torchvision==0.21.0+cu118
+  }
   python -m pip install -r (Join-Path $Root 'scripts\requirements-train.txt')
 }
 
@@ -266,9 +294,14 @@ if ($args -and $args.Count -gt 0) {
 $hasDry = ($remaining -contains '--dry-run')
 $hasBdd = $false
 $hasInstall = ($remaining -contains '--install')
+$hasDevice = $false
 for ($i = 0; $i -lt $remaining.Count; $i++) {
   if ($remaining[$i] -eq '--bdd100k-dir') { $hasBdd = $true; break }
   if ($remaining[$i] -like '--bdd100k-dir=*') { $hasBdd = $true; break }
+}
+for ($i = 0; $i -lt $remaining.Count; $i++) {
+  if ($remaining[$i] -eq '--device') { $hasDevice = $true; break }
+  if ($remaining[$i] -like '--device=*') { $hasDevice = $true; break }
 }
 
 $cmd = @('python', $scriptPath)
@@ -280,6 +313,11 @@ if (-not $hasDry) {
     $bdd = Resolve-Bdd100kDir -RepoRoot $Root
     $cmd += '--bdd100k-dir'
     $cmd += $bdd
+  }
+  if (-not $hasDevice -and -not $env:FORCE_CPU -and (Test-TorchCudaAvailable)) {
+    Write-Host "CUDA available; defaulting training to --device 0"
+    $cmd += '--device'
+    $cmd += '0'
   }
 }
 $cmd += $remaining

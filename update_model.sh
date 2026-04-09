@@ -50,6 +50,15 @@ venv_python_ok() {
   [[ "${major}" -eq 3 && "${minor}" -lt 14 ]]
 }
 
+has_nvidia_gpu() {
+  command -v nvidia-smi >/dev/null 2>&1 || return 1
+  nvidia-smi -L >/dev/null 2>&1
+}
+
+torch_cuda_available() {
+  python -c 'import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)' >/dev/null 2>&1
+}
+
 # True if $1 looks like a BDD100K root (det_20 labels present; matches train_bdd100k_finetune.py discovery).
 looks_like_bdd100k() {
   local p="$1"
@@ -139,6 +148,10 @@ fi
 source "${VENV}/bin/activate"
 
 if [[ -z "${SKIP_DEPS:-}" ]]; then
+  if [[ -z "${FORCE_CPU:-}" ]] && has_nvidia_gpu; then
+    echo "NVIDIA GPU detected. Installing CUDA PyTorch wheels (cu118)..."
+    pip install --upgrade --index-url https://download.pytorch.org/whl/cu118 torch==2.6.0+cu118 torchvision==0.21.0+cu118
+  fi
   pip install -r scripts/requirements-train.txt
 fi
 
@@ -147,6 +160,7 @@ CMD=(python scripts/train_bdd100k_finetune.py)
 has_dry=0
 has_bdd=0
 has_install=0
+has_device=0
 prev=
 for a in "$@"; do
   if [[ "${a}" == "--dry-run" ]]; then
@@ -158,6 +172,12 @@ for a in "$@"; do
   if [[ "${prev}" == "--bdd100k-dir" ]] || [[ "${a}" == --bdd100k-dir=* ]]; then
     has_bdd=1
   fi
+  if [[ "${a}" == "--device" ]] || [[ "${a}" == --device=* ]]; then
+    has_device=1
+  fi
+  if [[ "${prev}" == "--device" ]]; then
+    has_device=1
+  fi
   prev="${a}"
 done
 
@@ -167,6 +187,10 @@ if [[ "${has_dry}" -eq 0 ]]; then
   fi
   if [[ "${has_bdd}" -eq 0 ]]; then
     CMD+=(--bdd100k-dir "$(resolve_bdd100k_dir)")
+  fi
+  if [[ -z "${FORCE_CPU:-}" && "${has_device}" -eq 0 ]] && torch_cuda_available; then
+    echo "CUDA available; defaulting training to --device 0"
+    CMD+=(--device 0)
   fi
 fi
 

@@ -107,6 +107,48 @@ That writes `YOLO26-General.mlpackage` next to the script’s default output (un
 
 Then rebuild / run again: `swift build` and `swift run KAutomobileTracker`.
 
+### 2b. Fine-tune on BDD100K and export/install model (Windows/macOS/Linux)
+
+For dataset conversion + YOLO fine-tune + CoreML export + install, use the repo update scripts from the project root:
+
+```powershell
+# Windows (PowerShell)
+$env:BDD100K_DIR = "D:\path\to\bdd100k-or-data-root"
+.\update_model.ps1
+```
+
+```bash
+# macOS/Linux
+export BDD100K_DIR="$HOME/path/to/bdd100k-or-data-root"
+./update_model.sh
+```
+
+Notes:
+
+- The scripts auto-detect multiple BDD100K layouts, including:
+  - `.../labels/det_20/train/*.json` (per-image JSON layout)
+  - `.../labels/bdd100k_labels_images_train.json` (monolithic official labels file)
+  - nested/sibling folders such as `.data/bdd100k` + `.data/bdd100k_labels_release`
+- On Windows with NVIDIA GPUs, `update_model.ps1` prioritizes GPU by default:
+  - installs CUDA-enabled PyTorch wheels (cu118)
+  - auto-passes `--device 0` when CUDA is available
+- To force CPU mode, set `FORCE_CPU=1` and/or pass `--device cpu`.
+
+Progress tips:
+
+- Skip dependency reinstall when iterating: set `SKIP_DEPS=1`.
+- During long conversion/training runs, watch live logs:
+
+```powershell
+Get-Content .\train_progress.log -Wait
+```
+
+If you only want a layout and pipeline smoke test (no train/export), use:
+
+```powershell
+.\update_model.ps1 --dry-run
+```
+
 ### 3. Local `.app` bundle (unsigned)
 
 A minimal release-style bundle (dev use; not a full notarized app):

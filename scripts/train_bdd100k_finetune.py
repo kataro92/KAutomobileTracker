@@ -155,6 +155,11 @@ def discover_image_for_label(
                 q = root / sub / name
                 if q.is_file():
                     return q
+                # Common BDD shards (100k and 10k archives): split/trainA|trainB|testA|testB
+                for shard in ("trainA", "trainB", "testA", "testB"):
+                    qq = root / sub / shard / name
+                    if qq.is_file():
+                        return qq
     # recursive shallow search (slow but helpful)
     for root in search_roots:
         if root.is_dir():
@@ -363,17 +368,31 @@ def convert_split(
     labels_parent, img_roots = discover_bdd100k_layout(bdd_root)
     json_files = _split_json_files(labels_parent, split)
     if not json_files:
+        print(f"[{split}] No label JSON found under {labels_parent}", flush=True)
         return 0, []
 
     ensure_dir(out_images)
     ensure_dir(out_labels)
     written = 0
     image_paths: list[Path] = []
+    scanned = 0
+    progress_every = 1_000
     if limit is not None:
         json_files = json_files[:limit]
+    print(
+        f"[{split}] Converting from {len(json_files)} label file(s) under {labels_parent}",
+        flush=True,
+    )
 
     for jf in json_files:
+        print(f"[{split}] Reading labels: {jf.name}", flush=True)
         for frame in _iter_frames_from_json(jf):
+            scanned += 1
+            if scanned % progress_every == 0:
+                print(
+                    f"[{split}] progress scanned={scanned:,} converted={written:,}",
+                    flush=True,
+                )
             name = frame_image_name(frame)
             if not name:
                 continue
@@ -408,6 +427,13 @@ def convert_split(
             dst_lbl.write_text("\n".join(lines) + "\n", encoding="utf-8")
             written += 1
             image_paths.append(dst_img.resolve())
+            if written % progress_every == 0:
+                print(
+                    f"[{split}] progress scanned={scanned:,} converted={written:,}",
+                    flush=True,
+                )
+
+    print(f"[{split}] Done scanned={scanned:,} converted={written:,}", flush=True)
 
     return written, image_paths
 
