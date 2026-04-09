@@ -37,6 +37,10 @@ public final class TripRepository: ObservableObject, TripStoring {
         if let doc = try? decoder.decode(TripsDocument.self, from: data) {
             trips = doc.trips.sorted { $0.startedAt > $1.startedAt }
             AppLog.persistence.debug("Loaded trips document v\(doc.schemaVersion), count=\(doc.trips.count)")
+            if doc.schemaVersion < TripsSchema.currentVersion {
+                AppLog.persistence.notice("Upgrading trips storage schema to v\(TripsSchema.currentVersion)")
+                save()
+            }
             return
         }
         if let legacy = try? decoder.decode([TripRecord].self, from: data) {
@@ -75,6 +79,11 @@ public final class TripRepository: ObservableObject, TripStoring {
     public func update(_ trip: TripRecord) {
         guard let idx = trips.firstIndex(where: { $0.id == trip.id }) else { return }
         trips[idx] = trip
+        save()
+    }
+
+    public func remove(id: UUID) {
+        trips.removeAll { $0.id == id }
         save()
     }
 }

@@ -8,6 +8,7 @@ public enum KAutoError: LocalizedError, Equatable {
     case videoNoTrack
     case videoReaderFailed(reason: String)
     case analysisCancelled
+    case cameraUnavailable(reason: String)
 
     public var errorDescription: String? {
         switch self {
@@ -25,6 +26,8 @@ public enum KAutoError: LocalizedError, Equatable {
             return "Could not read video: \(r)"
         case .analysisCancelled:
             return "Analysis was cancelled."
+        case .cameraUnavailable(let r):
+            return "Camera unavailable: \(r)"
         }
     }
 

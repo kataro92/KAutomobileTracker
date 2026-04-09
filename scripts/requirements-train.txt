@@ -1,0 +1,5 @@
+ultralytics[export]>=8.4.0
+numpy
+Pillow
+tqdm
+PyYAML

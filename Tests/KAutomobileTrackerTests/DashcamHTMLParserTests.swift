@@ -17,16 +17,30 @@ final class DashcamHTMLParserTests: XCTestCase {
     }
 
     func testTripsDocumentRoundTrip() throws {
+        let traffic = [
+            TrafficObjectObservation(
+                label: "Car",
+                category: .vehicle,
+                trackId: 1,
+                timestamp: Date(timeIntervalSince1970: 1_700_000_100),
+                confidence: 0.91,
+                boundingBox: [0.1, 0.2, 0.3, 0.25],
+                frameIndex: 3
+            ),
+        ]
         let trip = TripRecord(
             startedAt: Date(timeIntervalSince1970: 1_700_000_000),
             isTracked: true,
             inputKind: .wifiNiceDVR,
-            sourceLabel: "test"
+            sourceLabel: "test",
+            trafficObjects: traffic
         )
         let doc = TripsDocument(schemaVersion: TripsSchema.currentVersion, trips: [trip])
         let data = try JSONEncoder().encode(doc)
         let decoded = try JSONDecoder().decode(TripsDocument.self, from: data)
         XCTAssertEqual(decoded.trips.count, 1)
         XCTAssertEqual(decoded.schemaVersion, TripsSchema.currentVersion)
+        XCTAssertEqual(decoded.trips.first?.trafficObjects?.count, 1)
+        XCTAssertEqual(decoded.trips.first?.trafficObjects?.first?.label, "Car")
     }
 }

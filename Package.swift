@@ -13,13 +13,15 @@ let package = Package(
     targets: [
         .target(
             name: "KAutomobileTrackerCore",
-            path: "Sources/KAutomobileTrackerCore"
+            path: "Sources/KAutomobileTrackerCore",
+            resources: [.process("Resources")]
         ),
         .executableTarget(
             name: "KAutomobileTracker",
             dependencies: ["KAutomobileTrackerCore"],
             path: "Sources/KAutomobileTracker",
-            exclude: ["Resources/Info.plist"]
+            exclude: ["Resources/Info.plist"],
+            resources: [.process("Resources/Models")]
         ),
         .testTarget(
             name: "KAutomobileTrackerTests",

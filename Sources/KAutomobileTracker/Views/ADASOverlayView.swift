@@ -75,7 +75,9 @@ struct ADASOverlayView: View {
     private func color(for obj: DetectedObjectOverlay) -> Color {
         switch obj.category {
         case .pedestrian: return .orange
-        case .signCandidate: return .yellow
+        case .vehicle: return .blue
+        case .trafficSign, .signCandidate: return .yellow
+        case .trafficLight: return .red
         case .text: return .cyan
         case .genericRectangle: return .purple
         case .unknown: return .gray

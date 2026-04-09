@@ -29,12 +29,18 @@ final class OverlayObjectTracker {
         nextId = 1
     }
 
+    /// Single-stage IoU matching (all `pending` treated as high-confidence).
     func update(with pending: [Pending]) -> [DetectedObjectOverlay] {
-        var usedTrack = Set<Int>()
-        var usedDet = Set<Int>()
-        var matches: [(Int, Int)] = []
+        update(high: pending, low: [])
+    }
 
-        for (di, p) in pending.enumerated() {
+    /// ByteTrack-style lite: match `high` first, then allow `low` to re-anchor **existing** unmatched tracks only (no new tracks from `low`).
+    func update(high pendingHigh: [Pending], low pendingLow: [Pending]) -> [DetectedObjectOverlay] {
+        var usedTrack = Set<Int>()
+        var usedDetHigh = Set<Int>()
+        var matchesHigh: [(Int, Int)] = []
+
+        for (di, p) in pendingHigh.enumerated() {
             var bestT: Int?
             var bestIoU: CGFloat = 0
             for (ti, t) in tracks.enumerated() where !usedTrack.contains(ti) {
@@ -46,14 +52,43 @@ final class OverlayObjectTracker {
                 }
             }
             if let ti = bestT {
-                matches.append((ti, di))
+                matchesHigh.append((ti, di))
                 usedTrack.insert(ti)
-                usedDet.insert(di)
+                usedDetHigh.insert(di)
             }
         }
 
-        for (ti, di) in matches {
-            let p = pending[di]
+        var matchesLow: [(Int, Int)] = []
+        if !pendingLow.isEmpty {
+            let lowOrder = pendingLow.indices.sorted { pendingLow[$0].confidence > pendingLow[$1].confidence }
+            for di in lowOrder {
+                let p = pendingLow[di]
+                var bestT: Int?
+                var bestIoU: CGFloat = 0
+                for (ti, t) in tracks.enumerated() where !usedTrack.contains(ti) {
+                    if t.category != p.category { continue }
+                    let iou = intersectionOverUnion(p.box, t.box)
+                    if iou >= iouThreshold, iou > bestIoU {
+                        bestIoU = iou
+                        bestT = ti
+                    }
+                }
+                if let ti = bestT {
+                    matchesLow.append((ti, di))
+                    usedTrack.insert(ti)
+                }
+            }
+        }
+
+        for (ti, di) in matchesHigh {
+            let p = pendingHigh[di]
+            tracks[ti].box = p.box
+            tracks[ti].label = p.label
+            tracks[ti].confidence = p.confidence
+            tracks[ti].missed = 0
+        }
+        for (ti, di) in matchesLow {
+            let p = pendingLow[di]
             tracks[ti].box = p.box
             tracks[ti].label = p.label
             tracks[ti].confidence = p.confidence
@@ -66,7 +101,7 @@ final class OverlayObjectTracker {
         }
         tracks.removeAll { $0.missed > maxMissed }
 
-        for (di, p) in pending.enumerated() where !usedDet.contains(di) {
+        for (di, p) in pendingHigh.enumerated() where !usedDetHigh.contains(di) {
             tracks.append(
                 Track(
                     id: nextId,

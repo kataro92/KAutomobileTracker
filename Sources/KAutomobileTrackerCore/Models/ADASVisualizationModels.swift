@@ -28,8 +28,12 @@ public struct LaneCorridorOverlay: Sendable, Hashable {
 
 public enum DetectedObjectCategory: String, Sendable, Codable, Hashable {
     case pedestrian
-    case text
+    case vehicle
+    case trafficSign
+    /// Deprecated alias decoded from older overlays if ever persisted.
     case signCandidate
+    case trafficLight
+    case text
     case genericRectangle
     case unknown
 }

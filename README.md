@@ -42,11 +42,31 @@ macOS-only SwiftUI app that helps **record and review driving trips** using foot
 
 ---
 
-## Getting started on a new machine
+## Run everything on macOS
 
-Short checklist: [docs/ONBOARDING.md](docs/ONBOARDING.md). **Contributing / PRs:** [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
+Use this flow on any **Apple Silicon or Intel** Mac with **macOS 14+** and a working Swift toolchain (**Xcode** from the App Store, or **Xcode Command Line Tools**: `xcode-select --install`).
 
-### Clone & build
+Short checklist and context: [docs/ONBOARDING.md](docs/ONBOARDING.md). **Contributing / PRs:** [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
+
+### After changing code (mandatory)
+
+When you finish a set of edits—or before you commit or open a PR—**always run a full compile** and **resolve every error** until it succeeds:
+
+```bash
+swift build
+```
+
+Then run tests (recommended):
+
+```bash
+swift test
+```
+
+Do not treat the work as done while `swift build` fails. Fix compiler diagnostics in the repo first; only then run the app or ship the change.
+
+### 1. Clone, build, test, and run (terminal)
+
+From a folder where you keep projects:
 
 ```bash
 git clone https://github.com/kataro92/KAutomobileTracker.git
@@ -55,15 +75,41 @@ swift build
 swift test
 ```
 
-### Run (debug)
+Run the debug app (pick the path that exists on your machine after `swift build`):
 
 ```bash
+swift run KAutomobileTracker
+```
+
+```bash
+# Typical paths if you prefer to launch the binary directly:
 .build/arm64-apple-macosx/debug/KAutomobileTracker
-# or
+# or, on some setups:
 .build/debug/KAutomobileTracker
 ```
 
-### Unsigned `.app` (local)
+- **Camera / Wi‑Fi / Bluetooth:** the first time you use those features, approve **Camera** and **Bluetooth** when macOS prompts. Sandboxed builds need the entitlements in [Config/KAutomobileTracker.entitlements](Config/KAutomobileTracker.entitlements); see [docs/XCODE_SIGNING.md](docs/XCODE_SIGNING.md).
+- **Trip data** is written under `~/Library/Application Support/KAutomobileTracker/` (see Settings for notes).
+
+### 2. YOLO26 CoreML models (optional)
+
+Object detection uses `.mlpackage` bundles if they are present. See [Sources/KAutomobileTracker/Resources/Models/README.md](Sources/KAutomobileTracker/Resources/Models/README.md) for expected names (`YOLO26-General.mlpackage`, optional `YOLO26-Signs.mlpackage`).
+
+**Export on macOS** (Python 3, network for first-time weight download):
+
+```bash
+cd KAutomobileTracker/scripts
+pip install -r requirements-export.txt
+python3 export_yolo26_coreml.py --general
+```
+
+That writes `YOLO26-General.mlpackage` next to the script’s default output (under `Sources/KAutomobileTracker/Resources/Models/` if you use the stock paths). You can also copy models into `~/Library/Application Support/KAutomobileTracker/models/`, or use **Settings → YOLO CoreML** to download a zip if you host one.
+
+Then rebuild / run again: `swift build` and `swift run KAutomobileTracker`.
+
+### 3. Local `.app` bundle (unsigned)
+
+A minimal release-style bundle (dev use; not a full notarized app):
 
 ```bash
 chmod +x build_app.sh
@@ -73,11 +119,12 @@ open KAutomobileTracker.app
 
 For **signed / notarized** distribution, see [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
 
-### Xcode
+### 4. Xcode (GUI + signing)
 
-1. Open **Package.swift**.  
-2. Scheme **KAutomobileTracker** → **My Mac**.  
-3. Attach [Config/KAutomobileTracker.entitlements](Config/KAutomobileTracker.entitlements) per [docs/XCODE_SIGNING.md](docs/XCODE_SIGNING.md).
+1. **File → Open…** and select the **repo folder** or [Package.swift](Package.swift).  
+2. Scheme **KAutomobileTracker** → destination **My Mac**.  
+3. Attach [Config/KAutomobileTracker.entitlements](Config/KAutomobileTracker.entitlements) per [docs/XCODE_SIGNING.md](docs/XCODE_SIGNING.md).  
+4. Press **Run** (▶).
 
 ---
 
@@ -86,7 +133,7 @@ For **signed / notarized** distribution, see [docs/DISTRIBUTION.md](docs/DISTRIB
 | Module | Role |
 |--------|------|
 | **KAutomobileTrackerCore** (library) | Models, trip persistence (`TripsDocument` + migration), `VideoAnalysisEngine`, Bluetooth, Nice DVR HTTP client, `DashcamHTMLParser`, `AppLog`, `KAutoError`, `AppUserSettings`, service protocols. |
-| **KAutomobileTracker** (executable) | SwiftUI app, `TrackingSessionViewModel`, views, Settings. |
+| **KAutomobileTracker** (executable) | SwiftUI app, `TrackingSessionViewModel`, live/offline tracking views, Settings. |
 
 Extend HTTP dashcams via `DashcamWiFiListing` / `DashcamWiFiConnector` — see [docs/DASHCAM_VENDOR_NOTES.md](docs/DASHCAM_VENDOR_NOTES.md).
 

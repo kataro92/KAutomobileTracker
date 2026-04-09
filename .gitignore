@@ -6,3 +6,13 @@
 DerivedData/
 *.app
 *.dSYM
+# Large CoreML bundles (export locally)
+Sources/KAutomobileTracker/Resources/Models/*.mlpackage/
+
+# Local Python venv for training/export scripts
+.venv/
+.venv-train/
+
+# Python bytecode
+__pycache__/
+*.pyc

@@ -26,20 +26,37 @@ struct TripDetailVideoSection: View {
     let trip: TripRecord
 
     @State private var player: AVPlayer?
+    @State private var timeObserver: Any?
+    @State private var overlaySourceURL: URL?
+    @StateObject private var playbackOverlay = VideoAnalysisEngine()
 
     var body: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
                 if resolvedVideoURL != nil {
-                    Text(isProcessedPlayback ? "Showing processed video with ADAS overlays baked in." : "Showing original file. Use Re-process to generate a processed overlay video.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Group {
+                        if isProcessedPlayback {
+                            Text("Showing processed video with ADAS overlays baked in.")
+                        } else if AppUserSettings.enableADASVisualization {
+                            Text("ADAS lane + detection overlay follows playback (enable or adjust in Settings).")
+                        } else {
+                            Text("Turn on “Show lane + detection overlay” in Settings to preview ADAS-style overlays during playback.")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 if let url = resolvedVideoURL {
                     Group {
                         if let p = player {
-                            MacAVPlayerView(player: p)
+                            ZStack {
+                                MacAVPlayerView(player: p)
+                                if AppUserSettings.enableADASVisualization {
+                                    ADASOverlayView(overlay: playbackOverlay.lastADASOverlay)
+                                        .allowsHitTesting(false)
+                                }
+                            }
                         } else {
                             ProgressView()
                                 .frame(maxWidth: .infinity, minHeight: 240)
@@ -50,7 +67,7 @@ struct TripDetailVideoSection: View {
                     .accessibilityLabel("Trip source video")
                     .onAppear {
                         if player == nil {
-                            player = configuredPlayer(url: url)
+                            setupPlayer(url: url)
                         }
                     }
                 } else {
@@ -68,24 +85,43 @@ struct TripDetailVideoSection: View {
             replacePlayer()
         }
         .onDisappear {
-            player?.pause()
-            player = nil
+            tearDownPlayer()
         }
     }
 
     private func replacePlayer() {
-        player?.pause()
-        player = nil
+        tearDownPlayer()
         if let url = resolvedVideoURL {
-            player = configuredPlayer(url: url)
+            setupPlayer(url: url)
         }
     }
 
-    private func configuredPlayer(url: URL) -> AVPlayer {
+    private func setupPlayer(url: URL) {
+        tearDownPlayer()
+        overlaySourceURL = url
+        playbackOverlay.reloadYOLOModels(for: AppUserSettings.detectionPipelineSettings)
         let p = AVPlayer(url: url)
         p.volume = 0.25
         p.isMuted = false
-        return p
+        player = p
+        let interval = CMTime(seconds: 0.12, preferredTimescale: 600)
+        timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { t in
+            let secs = CMTimeGetSeconds(t)
+            guard secs.isFinite, let u = overlaySourceURL else { return }
+            Task { @MainActor in
+                await playbackOverlay.updatePlaybackOverlay(fileURL: u, timeSeconds: secs)
+            }
+        }
+    }
+
+    private func tearDownPlayer() {
+        if let p = player, let obs = timeObserver {
+            p.removeTimeObserver(obs)
+        }
+        timeObserver = nil
+        overlaySourceURL = nil
+        player?.pause()
+        player = nil
     }
 
     private var resolvedVideoURL: URL? {

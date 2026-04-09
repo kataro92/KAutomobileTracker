@@ -8,6 +8,7 @@ public protocol TripStoring: AnyObject, ObservableObject {
     func save()
     func add(_ trip: TripRecord)
     func update(_ trip: TripRecord)
+    func remove(id: UUID)
 }
 
 @MainActor
@@ -24,8 +25,9 @@ public protocol VideoAnalyzing: AnyObject, ObservableObject {
     func runAnalysis(
         fileURL: URL,
         simulated: Bool,
+        pipeline: DetectionPipelineSettings?,
         onProgress: @escaping @Sendable (Int) -> Void,
-        onComplete: @escaping @MainActor (Double, [LaneEstimate: Int], [SignObservation], Int) -> Void
+        onComplete: @escaping @MainActor (Double, [LaneEstimate: Int], [SignObservation], [TrafficObjectObservation], Int) -> Void
     )
 }
 

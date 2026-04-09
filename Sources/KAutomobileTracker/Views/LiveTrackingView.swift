@@ -1,32 +1,64 @@
 import AppKit
 import KAutomobileTrackerCore
-import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct TrackingSessionView: View {
+/// Dashcam-connected workflow: Wi‑Fi (Nice DVR–style) or Bluetooth metadata + optional local file.
+struct LiveTrackingView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var trips: TripRepository
     @EnvironmentObject private var bluetooth: BluetoothDashcamService
     @EnvironmentObject private var niceDVRWiFi: NiceDVRWiFiService
     @EnvironmentObject private var analysis: VideoAnalysisEngine
 
-    @Binding var isPresented: Bool
     @State private var sessionVM = TrackingSessionViewModel()
+    @State private var selectedTab: LiveTrackingTab = .wifi
+    @State private var pipelineSettings = AppUserSettings.detectionPipelineSettings
+
+    private enum LiveTrackingTab: String, CaseIterable, Identifiable {
+        case wifi
+        case bluetooth
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .wifi: return "Wi‑Fi (Nice DVR)"
+            case .bluetooth: return "Bluetooth"
+            }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Tracking session")
+            Text("Live tracking")
                 .font(.title2.weight(.semibold))
 
-            niceDVRCard
+            DetectionPipelineControls(settings: $pipelineSettings, persistToUserDefaults: true)
 
-            bluetoothCard
+            Picker("Mode", selection: $selectedTab) {
+                ForEach(LiveTrackingTab.allCases) { tab in
+                    Text(tab.title).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            switch selectedTab {
+            case .wifi:
+                niceDVRCard
+            case .bluetooth:
+                bluetoothCard
+                if !sessionVM.useSimulation {
+                    filePickerRow
+                }
+            }
 
             Toggle("Simulate trip (no video file)", isOn: Bindable(sessionVM).useSimulation)
                 .disabled(analysis.isRunning)
                 .accessibilityLabel("Simulate trip without video file")
 
-            if !sessionVM.useSimulation {
+            if selectedTab == .wifi, !sessionVM.useSimulation {
                 filePickerRow
             }
 
@@ -43,10 +75,10 @@ struct TrackingSessionView: View {
             HStack {
                 Button("Cancel") {
                     analysis.cancel()
-                    isPresented = false
+                    dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
-                .accessibilityLabel("Cancel tracking session")
+                .accessibilityLabel("Cancel live tracking")
                 Spacer()
                 Button("Start & track trip") {
                     startTracking()
@@ -236,8 +268,9 @@ struct TrackingSessionView: View {
         analysis.runAnalysis(
             fileURL: url,
             simulated: sessionVM.useSimulation,
+            pipeline: pipelineSettings,
             onProgress: { _ in },
-            onComplete: { avg, laneMap, signs, frames in
+            onComplete: { avg, laneMap, signs, traffic, frames in
                 let histogram = Dictionary(uniqueKeysWithValues: laneMap.map { ($0.key.rawValue, $0.value) })
                 let tracked = frames > 0
                 let trip = TripRecord(
@@ -250,10 +283,11 @@ struct TrackingSessionView: View {
                     averageMotion: avg,
                     laneHistogram: histogram,
                     signs: signs,
+                    trafficObjects: traffic.isEmpty ? nil : traffic,
                     frameSamples: frames
                 )
                 trips.add(trip)
-                isPresented = false
+                dismiss()
             }
         )
     }

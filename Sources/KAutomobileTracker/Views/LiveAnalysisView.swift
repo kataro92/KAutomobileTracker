@@ -67,7 +67,7 @@ struct LiveAnalysisView: View {
             Text("Live camera")
                 .font(.title2.weight(.semibold))
 
-            Text("Analyzes the default FaceTime or USB camera in real time with throttled Vision sampling (motion, lane corridor heuristic, pedestrian rectangles, sign-like OCR). Optional ADAS-style overlay is in Settings. Not a certified ADAS or YOLO stack.")
+            Text("Analyzes the default FaceTime or USB camera with throttled YOLO26 CoreML detection (when models are installed), motion, and lane heuristics. Choose sign region in Settings. Not a certified ADAS stack.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -106,7 +106,7 @@ struct LiveAnalysisView: View {
                         Text(analysis.lastLane.rawValue)
                     }
                     if !analysis.recentSigns.isEmpty {
-                        Text("Recent text: \(analysis.recentSigns.map(\.text).joined(separator: ", "))")
+                        Text("Recent signs: \(analysis.recentSigns.map(\.text).joined(separator: ", "))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

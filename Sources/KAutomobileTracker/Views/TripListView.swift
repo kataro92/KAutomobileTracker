@@ -3,22 +3,28 @@ import SwiftUI
 
 struct TripListView: View {
     @EnvironmentObject private var trips: TripRepository
-    @Binding var selectedTrip: TripRecord?
-    var onNewSession: () -> Void
+    @Binding var selectedTripID: UUID?
+    var onLiveTracking: () -> Void
+    var onOfflineTracking: () -> Void
 
     var body: some View {
-        List(selection: $selectedTrip) {
+        List(selection: $selectedTripID) {
             Section {
-                Button(action: onNewSession) {
-                    Label("New tracking session", systemImage: "record.circle")
+                Button(action: onLiveTracking) {
+                    Label("Live Tracking", systemImage: "antenna.radiowaves.left.and.right")
                 }
                 .buttonStyle(.borderless)
-                .accessibilityLabel("New tracking session")
+                .accessibilityLabel("Live Tracking")
+                Button(action: onOfflineTracking) {
+                    Label("Offline Tracking", systemImage: "folder.badge.plus")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Offline Tracking")
             }
             Section("Trips") {
                 ForEach(trips.trips) { trip in
                     TripRowView(trip: trip)
-                        .tag(trip)
+                        .tag(trip.id)
                         .accessibilityElement(children: .combine)
                 }
             }
@@ -50,6 +56,11 @@ private struct TripRowView: View {
                 .foregroundStyle(.secondary)
             if !trip.signs.isEmpty {
                 Text("\(trip.signs.count) sign observations")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            if let t = trip.trafficObjects, !t.isEmpty {
+                Text("\(t.count) traffic observations")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }

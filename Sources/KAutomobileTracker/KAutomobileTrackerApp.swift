@@ -29,6 +29,7 @@ struct KAutomobileTrackerApp: App {
         Settings {
             SettingsView()
                 .environmentObject(niceDVRWiFi)
+                .environmentObject(analysis)
         }
     }
 }

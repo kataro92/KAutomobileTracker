@@ -32,10 +32,24 @@ Use Issues with the **enhancement** label. Include a short user/job story and **
 
 ## Local development
 
+### Build before you stop
+
+After **any** batch of code changes, run:
+
 ```bash
 swift build
+```
+
+**Fix every compiler error** until `swift build` completes successfully. Do not stop for the day with a broken build. Then run:
+
+```bash
 swift test
-./build_app.sh   # optional unsigned .app for local use
+```
+
+Optional unsigned app bundle:
+
+```bash
+./build_app.sh
 ```
 
 Open **Package.swift** in Xcode for debugging UI with full entitlements (see [XCODE_SIGNING.md](XCODE_SIGNING.md)).
