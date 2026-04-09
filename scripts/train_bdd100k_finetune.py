@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import random
 import shutil
 import sys
@@ -74,8 +75,18 @@ def default_bundle_models_dir() -> Path:
 
 
 def application_support_models_dir() -> Path:
-    base = Path(os.environ.get("HOME", str(Path.home())))
-    return base / "Library" / "Application Support" / "KAutomobileTracker" / "models"
+    """Per-user models folder (macOS app support, Windows LocalAppData, XDG on Linux)."""
+    system = platform.system()
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "KAutomobileTracker" / "models"
+    if system == "Windows":
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) if local else Path.home() / "AppData" / "Local"
+        return base / "KAutomobileTracker" / "models"
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return Path(xdg) / "KAutomobileTracker" / "models"
+    return Path.home() / ".local" / "share" / "KAutomobileTracker" / "models"
 
 
 def ensure_dir(p: Path) -> None:

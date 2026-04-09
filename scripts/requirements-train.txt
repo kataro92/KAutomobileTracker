@@ -1,5 +1,12 @@
+# Training stack needs prebuilt wheels for torch / scipy. Use Python 3.11–3.13.
+# Python 3.14+ often forces a SciPy source build, which requires gfortran and fails on many Macs.
+# Example: brew install python@3.12 && export PYTHON_TRAIN=python3.12
+#
+# SciPy 1.11.1 and older often lack cp312 + macOS arm64 wheels; pip then builds from source and
+# fails with "OpenBLAS not found" unless you install openblas. Pinning >=1.11.4 keeps binary wheels.
+numpy>=1.26.0
+scipy>=1.11.4
 ultralytics[export]>=8.4.0
-numpy
 Pillow
 tqdm
 PyYAML

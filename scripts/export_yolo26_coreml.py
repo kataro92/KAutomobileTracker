@@ -3,14 +3,24 @@
 from __future__ import annotations
 import argparse
 import os
+import platform
 import shutil
 import sys
 from pathlib import Path
 
 
 def _application_support_models_dir() -> Path:
-    base = Path(os.environ.get("HOME", str(Path.home())))
-    return base / "Library" / "Application Support" / "KAutomobileTracker" / "models"
+    system = platform.system()
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "KAutomobileTracker" / "models"
+    if system == "Windows":
+        local = os.environ.get("LOCALAPPDATA")
+        base = Path(local) if local else Path.home() / "AppData" / "Local"
+        return base / "KAutomobileTracker" / "models"
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return Path(xdg) / "KAutomobileTracker" / "models"
+    return Path.home() / ".local" / "share" / "KAutomobileTracker" / "models"
 
 
 def _install_mlpackage(src_mlpackage: Path) -> Path:
