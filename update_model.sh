@@ -2,7 +2,7 @@
 # Run BDD100K fine-tune -> CoreML -> Application Support (see scripts/train_bdd100k_finetune.py).
 #
 # Usage:
-#   export BDD100K_DIR="$HOME/datasets/bdd100k"   # optional if a default path below exists
+#   export BDD100K_DIR="$HOME/datasets/bdd100k"   # optional; default search starts at ./.data
 #   ./update_model.sh
 #   ./update_model.sh --epochs 50 --bundle
 #   ./update_model.sh --dry-run
@@ -58,7 +58,7 @@ looks_like_bdd100k() {
     || [[ -d "${p}/labels/bdd100k/det_20/train" ]]
 }
 
-# Resolve dataset root: BDD100K_DIR, then repo ./bdd100k, then ~/datasets/bdd100k, ~/bdd100k.
+# Resolve dataset root: BDD100K_DIR, then repo ./.data, ./.data/bdd100k, ./bdd100k, ~/datasets/bdd100k, ~/bdd100k.
 resolve_bdd100k_dir() {
   local p
   if [[ -n "${BDD100K_DIR:-}" ]]; then
@@ -76,7 +76,7 @@ resolve_bdd100k_dir() {
     echo "  Expected .../labels/det_20/train (see https://doc.bdd100k.com/)" >&2
     exit 1
   fi
-  for p in "${ROOT}/bdd100k" "${HOME}/datasets/bdd100k" "${HOME}/bdd100k"; do
+  for p in "${ROOT}/.data" "${ROOT}/.data/bdd100k" "${ROOT}/bdd100k" "${HOME}/datasets/bdd100k" "${HOME}/bdd100k"; do
     if [[ -d "${p}" ]] && looks_like_bdd100k "${p}"; then
       echo "Using BDD100K dir: ${p}" >&2
       echo "${p}"
@@ -86,7 +86,7 @@ resolve_bdd100k_dir() {
   echo "error: No BDD100K dataset found. Download from https://doc.bdd100k.com/download.html" >&2
   echo "  Then either:" >&2
   echo "    export BDD100K_DIR=\"/path/to/bdd100k\" && ./update_model.sh" >&2
-  echo "  or place the tree at one of: ${ROOT}/bdd100k  ${HOME}/datasets/bdd100k  ${HOME}/bdd100k" >&2
+  echo "  or place the tree under e.g. ${ROOT}/.data (det_20 layout) or ${ROOT}/.data/bdd100k" >&2
   echo "  (must contain labels/det_20/train with JSON labels)" >&2
   exit 1
 }

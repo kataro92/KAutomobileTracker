@@ -16,3 +16,6 @@ Sources/KAutomobileTracker/Resources/Models/*.mlpackage/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Local datasets and training outputs (default BDD100K location: see update_model.sh / update_model.ps1)
+.data/

@@ -48,6 +48,8 @@ function Resolve-Bdd100kDir {
     Write-Error "BDD100K_DIR does not look like BDD100K det_20: $full (expected labels\det_20\train). See https://doc.bdd100k.com/"
   }
   foreach ($p in @(
+      (Join-Path $RepoRoot '.data'),
+      (Join-Path $RepoRoot '.data\bdd100k'),
       (Join-Path $RepoRoot 'bdd100k'),
       (Join-Path $env:USERPROFILE 'datasets\bdd100k'),
       (Join-Path $env:USERPROFILE 'bdd100k')
@@ -59,6 +61,7 @@ function Resolve-Bdd100kDir {
   }
   Write-Host "No BDD100K dataset found. Download: https://doc.bdd100k.com/download.html" -ForegroundColor Yellow
   Write-Host "Set BDD100K_DIR or place data under one of:" -ForegroundColor Yellow
+  Write-Host "  $(Join-Path $RepoRoot '.data') or $(Join-Path $RepoRoot '.data\bdd100k')" -ForegroundColor Yellow
   Write-Host "  $(Join-Path $RepoRoot 'bdd100k')" -ForegroundColor Yellow
   Write-Host "  $(Join-Path $env:USERPROFILE 'datasets\bdd100k')" -ForegroundColor Yellow
   Write-Host "  $(Join-Path $env:USERPROFILE 'bdd100k')" -ForegroundColor Yellow
